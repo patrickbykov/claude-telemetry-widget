@@ -1,0 +1,7 @@
+{
+  "_note": "USD per million tokens. ASSUMED values - verify against anthropic.com/pricing and edit. cache read = 0.1x input, 5m write = 1.25x, 1h write = 2x.",
+  "opus":   {"in": 5.0, "out": 25.0},
+  "sonnet": {"in": 3.0, "out": 15.0},
+  "haiku":  {"in": 1.0, "out": 5.0},
+  "default": {"in": 5.0, "out": 25.0}
+}

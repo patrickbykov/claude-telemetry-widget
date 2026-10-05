@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+usage.db
+statusline.json
+statusline.*
+cache-watch.state.json
+reports/
+bar-test
