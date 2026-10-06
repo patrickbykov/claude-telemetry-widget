@@ -13,7 +13,6 @@ sys.path.insert(0, D)
 from pricing import family, price, parts, big
 
 C = json.load(open(os.path.join(D, "config.json")))
-BIG = C["ctx_big_tokens"]
 OUT_DIR = os.path.join(D, "reports")
 os.umask(0o077)  # reports quote prompts and tool inputs; keep them owner-only
 esc = html.escape
@@ -207,6 +206,14 @@ def build(sid):
     if not rows:
         sys.exit("no usage data in this session")
     main = [r for r in rows if not r["sub"]]
+    try:
+        import sqlite3
+        wrow = sqlite3.connect(os.path.join(D, "usage.db")).execute(
+            "SELECT window FROM session_window WHERE session=?", (sid,)).fetchone()
+    except Exception:
+        wrow = None
+    peak_ctx = max((r["ctx"] for r in main), default=0)
+    window = wrow[0] if wrow else (1_000_000 if peak_ctx > 200_000 else 200_000)
     total = sum(r["cost"] for r in rows)
     sub_cost = sum(r["cost"] for r in rows if r["sub"])
     t0, t1 = rows[0]["ts"], rows[-1]["ts"]
@@ -232,11 +239,11 @@ def build(sid):
 
     # cost above the big-context threshold: share of read/write attributable to tokens beyond BIG
     big_save = 0.0
-    big_reqs = [r for r in main if r["ctx"] > big(r["model"])]
+    big_reqs = [r for r in main if r["ctx"] > big(r["model"], window)]
     for r in big_reqs:
-        big_save += (r["pt"]["read"] + r["pt"]["write"]) * (r["ctx"] - big(r["model"])) / r["ctx"]
+        big_save += (r["pt"]["read"] + r["pt"]["write"]) * (r["ctx"] - big(r["model"], window)) / r["ctx"]
     dom = max(by_model, key=by_model.get)  # model that carried most of the cost sets the headline limit
-    BIG = big(dom)
+    BIG = big(dom, window)
     big_cost = sum(r["cost"] for r in big_reqs)
     peak = max(main, key=lambda r: r["ctx"]) if main else rows[0]
 
