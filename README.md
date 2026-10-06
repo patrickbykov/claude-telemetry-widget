@@ -3,8 +3,8 @@
 A macOS menu bar plugin ([SwiftBar](https://github.com/swiftbar/SwiftBar)) that shows Claude Code cost, context size, plan limits and prompt-cache state. It reads your local transcripts in `~/.claude/projects`. Nothing leaves your machine.
 
 <p align="center">
-  <img src="docs/menu.png" alt="Menu: plan limits, items needing attention, active sessions, spend" width="420">
-  <img src="docs/insights.png" alt="Insights submenu: daily cost, spend by model and project" width="420">
+  <img src="docs/menu.png" alt="Menu: plan limits, items needing attention, active sessions, spend" width="400">
+  <img src="docs/insights.png" alt="Insights submenu: daily cost, spend by model and project" width="400">
 </p>
 
 ## Quick start
