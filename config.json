@@ -1,16 +1,11 @@
 {
-  "ctx_big_tokens": 150000,
+  "ctx_big_tokens": 200000,
   "warn_cache_hit_below": 0.85,
   "warn_big_ctx_share_above": 0.6,
   "warn_cold_restarts_at_least": 3,
   "warn_limit_pct_at_least": 80,
   "min_today_requests_to_judge": 20,
   "active_window_minutes": 30,
-  "ctx_big_by_family": {
-    "haiku": 100000,
-    "sonnet": 150000,
-    "opus": 200000
-  },
   "bar": {
     "fill": "5h",
     "count": "active",

@@ -277,7 +277,7 @@ def build(sid):
     findings = []
     if big_reqs:
         findings.append(("high" if big_save > 0.15 * total else "med",
-                         f"{len(big_reqs)} of {len(main)} requests carried more than the {family(dom)} limit of {BIG//1000}k tokens of context "
+                         f"{len(big_reqs)} of {len(main)} requests carried more than the {BIG//1000}k cost threshold of context "
                          f"(peak {tok(peak['ctx'])}). Those requests cost {usd(big_cost)} ({big_cost/total*100:.0f}% of the session).",
                          f"Compacting or starting a fresh session at ~{BIG//1000}k would have saved roughly {usd(big_save)}."))
     if cold:
@@ -296,8 +296,9 @@ def build(sid):
     if sub_cost > 0.25 * total:
         findings.append(("low", f"Subagents account for {usd(sub_cost)} ({sub_cost/total*100:.0f}%) of the session.",
                          "Fine when they isolate noisy work; check that each one needed the largest model."))
-    if len(S["compactions"]) == 0 and peak["ctx"] > 2 * BIG:
-        findings.append(("med", f"The session never compacted although context passed {2*BIG//1000}k.", "Run /compact (or /clear between topics) earlier."))
+    if len(S["compactions"]) == 0 and peak["ctx"] > 400_000:
+        findings.append(("low", f"The session never compacted although context passed {peak['ctx']//1000}k.",
+                         "Not alarming on a native-1M context window (auto-compact fires near 967k there); on the standard 200k window, run /compact (or /clear between topics) earlier to avoid hitting it mid-task."))
     if not findings:
         findings.append(("ok", "No significant cost problems detected for this session.", ""))
 

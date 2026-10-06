@@ -50,9 +50,13 @@ for ts, ses, proj, model, inp, out, cr, c5, c1, sub in raw:
     cold = (not sub and prev[0] == ses and ctx > 20_000 and cr < 0.1 * ctx and model == prev[3] and ctx >= 0.8 * prev[2])
     over = (pt["write"] - (c5 + c1) * price(model)["read"] / 1e6) if cold else 0.0
     R.append(dict(t=t, ses=ses, proj=proj, model=model, fam=family(model), inp=inp, out=out, cr=cr,
-                  cc=c5 + c1, ctx=ctx, bigt=big(model), pt=pt, cost=sum(pt.values()), cold=cold, over=over, sub=sub))
+                  cc=c5 + c1, c1=c1, ctx=ctx, bigt=big(model), pt=pt, cost=sum(pt.values()), cold=cold, over=over, sub=sub))
     if not sub:
         prev = (ses, t, ctx, model)
+
+SESS_1H = {r["ses"] for r in R if r["c1"]}  # cc_1h seen this session: subscription-plan cache (1h TTL), else API-key/credit billing (5m)
+def ttl_label(ses):
+    return "1 hour" if ses in SESS_1H else "5 min"
 
 def scope(since):
     return [r for r in R if r["t"] >= since]
@@ -81,7 +85,7 @@ def problems(s, label, judge=True):
     if s["cold"] >= C["warn_cold_restarts_at_least"]:
         out.append(f"{label}: {s['cold']} cold-cache restarts, ~${s['over']:.2f} overspend")
     if s["bigshare"] > C["warn_big_ctx_share_above"]:
-        out.append(f"{label}: {s['bigshare']*100:.0f}% of spend above the compaction threshold (${s['big']:.2f})")
+        out.append(f"{label}: {s['bigshare']*100:.0f}% of spend above the cost threshold (${s['big']:.2f})")
     return out
 
 # ---- plan limits (statusline snapshot) ----
@@ -133,17 +137,20 @@ for sid_, r in sorted(last_main.items(), key=lambda x: -x[1]["t"].timestamp()):
     n_active += 1
     nm = (titles.get(sid_) or r["proj"])[:26]
     dots.append("bad" if r["ctx"] > 2 * r["bigt"] else "warn" if r["ctx"] > r["bigt"] or r["cold"] else "ok")
-    fam_, lim_ = family(r["model"]), r["bigt"] // 1000
-    if r["ctx"] > 2 * r["bigt"]:
-        att.append(("bad", f"“{nm}” · {r['ctx']//1000}k context", f"Over twice the {fam_} compaction threshold of {lim_}k. Write a handoff note, then /clear: summarising this much costs more than restarting.", HANDOFF))
+    lim_ = r["bigt"] // 1000
+    ttl_ = ttl_label(sid_)
+    if r["ctx"] > 2 * r["bigt"] and r["cold"]:
+        att.append(("bad", f"“{nm}” · {r['ctx']//1000}k context, cold cache", f"Over twice the {lim_}k cost threshold and the cache has expired: summarising this much costs more than restarting. Write a handoff note, then /clear.", HANDOFF))
+    elif r["ctx"] > 2 * r["bigt"]:
+        att.append(("bad", f"“{nm}” · {r['ctx']//1000}k context", f"Over twice the {lim_}k cost threshold, cache still warm. Run /compact with a focus note rather than restarting cold.", "compact"))
     elif r["ctx"] > r["bigt"]:
-        att.append(("warn", f"“{nm}” · {r['ctx']//1000}k context", f"Over the {fam_} compaction threshold of {lim_}k. Run /compact at the next task boundary.", "compact"))
+        att.append(("warn", f"“{nm}” · {r['ctx']//1000}k context", f"Over the {lim_}k cost threshold. Run /compact at the next task boundary while the cache is warm.", "compact"))
     elif r["cold"]:
-        att.append(("warn", f"“{nm}” · cold cache (+${r['over']:.2f})", "The cache expired before the last message. Reply within 5 min, or /compact before stepping away.", "compact"))
+        att.append(("warn", f"“{nm}” · cold cache (+${r['over']:.2f})", f"The cache expired before the last message (TTL {ttl_} for this session). Reply sooner next time, or /compact before stepping away.", "compact"))
 for r_ in lim_hot:
     att.append(("bad" if r_[1] >= 90 else "warn", f"{r_[0]} at {r_[1]:.0f}%", "Move routine work to sonnet or haiku, and delegate noisy commands to subagents.", ""))
 TODAY_FIX = (("cache hit", "Avoid editing CLAUDE.md or switching models mid-session: both invalidate the cache."),
-             ("cold-cache", "Reply within 5 min, or /compact before stepping away. The watcher warns you before the cache expires."),
+             ("cold-cache", "Reply before the cache expires (5 min on API-key usage, 1h on subscription plans), or /compact before stepping away."),
              ("of spend", "One session per task, and /clear between topics."))
 for p_ in pt_today:
     att.append(("warn", p_, next(f for k_, f in TODAY_FIX if k_ in p_), ""))
@@ -266,7 +273,7 @@ def session_rows(sid, s, head):
     print(f"--{s['first'].strftime('%b %d %H:%M')} → {s['last'].strftime('%b %d %H:%M')} · {s['n']} requests · total {usd(s['cost'])} | size=12 {OK}")
     print(f"--Cache hit {pct(s['cr']/s['tot'] if s['tot'] else None)} · context now {tok(s['curctx'])} · peak {tok(s['maxctx'])} · {s['cold']} cache misses | size=12 {OK}")
     if s["curctx"] > s["bigt"]:
-        print(f"--Context is {tok(s['curctx'])} on {family(s['model'])} (threshold {tok(s['bigt'])}): run /compact (or /clear) in that session | sfimage=exclamationmark.triangle.fill sfcolor=#ffb800 size=12 color=#b45309,#fbbf24 {OK}")
+        print(f"--Context is {tok(s['curctx'])} (cost threshold {tok(s['bigt'])}): run /compact (or /clear) in that session | sfimage=exclamationmark.triangle.fill sfcolor=#ffb800 size=12 color=#b45309,#fbbf24 {OK}")
     print("-----")
     tr = glob.glob(os.path.expanduser(f"~/.claude/projects/*/{sid}.jsonl"))
     cwd_ = ""

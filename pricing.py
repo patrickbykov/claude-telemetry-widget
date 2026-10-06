@@ -23,6 +23,6 @@ def parts(model, inp, out, cr, c5, c1):
 _C = json.load(open(os.path.join(_D, "config.json")))
 
 def big(model):
-    """Context size above which a session on this model should be compacted (config: ctx_big_by_family)."""
-    f = "haiku" if "haiku" in model else family(model)
-    return _C.get("ctx_big_by_family", {}).get(f, _C["ctx_big_tokens"])
+    """Cost threshold: an undocumented heuristic above which a session is carrying expensive context,
+    not Anthropic's actual compaction point (config: ctx_big_tokens)."""
+    return _C["ctx_big_tokens"]
