@@ -38,7 +38,8 @@ not just the fresh tokens. This is the number shown as "Nk context" in the menu 
 
 ## Cost threshold — `ctx_big_tokens` (H)
 
-A single configurable number (`config.json: ctx_big_tokens`, default 150,000) above which a
+A configurable threshold (`config.json: ctx_big_tokens`, per model and context window, default
+150,000 on a 200K window) above which a
 request is flagged as carrying expensive context. This is **not** Anthropic's actual
 auto-compact point (see below) — it's just the line past which this project decides a session's
 spend is worth drawing attention to. `>2x` the threshold is treated as the "bad" tier.
@@ -52,6 +53,30 @@ code.claude.com/docs/en/{costs,prompt-caching,model-config}):
 auto-compact fires at ~200k tokens on the standard context window, or ~967k on models with a
 native 1M context window. There's no price jump at either point — compaction is about context
 capacity, not cost.
+
+## Smart zone — `ctx_smart_tokens` (H)
+
+A second, lower threshold than `ctx_big_tokens`: the point past which answer quality tends to
+degrade, not just cost. This is a practitioner heuristic (Dex Horthy and Matt Pocock, ~100K tokens;
+some sources say 100-150K), not an Anthropic-documented number. It renders as a 🔵 `info` row —
+visible under "Needs attention" but excluded from the menu-bar severity dot, and shown alongside
+(never instead of) the cold-cache warning.
+
+Detection of which context window (200K vs 1M) a session is running on, in priority order:
+1. `statusline.json`'s `context_window.context_window_size`, upserted per session by
+   `statusline-wrap.sh` into `usage.db`'s `session_window` table. Covers active interactive sessions.
+2. Fallback: this session's peak main-thread context exceeded 200,000 tokens → window is 1M.
+3. Otherwise: 200K.
+
+The `[1m]` model-id suffix is deliberately not used — a design review on real data found 29 of 58
+sessions that exceeded 200K context had no `[1m]` suffix (1M is on by default for those models on
+this account; the suffix only marks explicit selection).
+
+Both `ctx_smart_tokens` and `ctx_big_tokens` resolve the same way: per-window dict → the longest
+model-id substring key that matches (same matching as `pricing.price()`) → that window's `default` →
+`200k.default`. The `haiku` and `1m` values in the default config are guesses — tune them from your
+own sessions. A bare scalar `ctx_big_tokens` (old config format) still applies to every model/window
+unchanged.
 
 ## Cold-cache detection (H)
 
