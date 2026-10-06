@@ -45,6 +45,9 @@ The Claude usage item appears in the menu bar. Plan limits show after the next C
 | ⏳ **Cache watch** | A launchd job notifies you shortly before a session's prompt cache expires |
 | 💾 **Compaction saver** | A `PostCompact` hook saves each compaction summary to `~/.claude/compactions/` |
 
+See [docs/CALCULATIONS.md](docs/CALCULATIONS.md) for exactly how cost, context size, and
+cache-state advice are calculated.
+
 ## Install
 
 From the one-liner above, or from a clone:
