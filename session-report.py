@@ -224,8 +224,8 @@ def build(sid):
     prev = None
     for r in main:
         if prev and r["ctx"] > 20_000 and r["cr"] < 0.1 * r["ctx"]:
-            p = price(r["model"])["in"]
-            over = ((r["c5"] * 1.25 + r["c1"] * 2.0) - (r["c5"] + r["c1"]) * 0.1) * p / 1e6
+            p = price(r["model"])
+            over = ((r["c5"] * 1.25 + r["c1"] * 2.0) * p["in"] - (r["c5"] + r["c1"]) * p["read"]) / 1e6
             cold.append(dict(ts=r["ts"], gap=(r["ts"] - prev["ts"]).total_seconds() / 60, ctx=r["ctx"], over=over))
         prev = r
     cold_over = sum(c["over"] for c in cold)
@@ -252,7 +252,7 @@ def build(sid):
 
     # tool results: context contributors and their carrying cost
     main_ts = [r["ts"] for r in main]
-    avg_in = price(peak["model"])["in"]
+    avg_read = price(peak["model"])["read"]
     by_tool = defaultdict(lambda: [0, 0])
     big_results = []
     reads = defaultdict(int)
@@ -268,7 +268,7 @@ def build(sid):
         cs = sorted(S["compactions"])
         nc = cs[bisect.bisect_right(cs, ts)] if bisect.bisect_right(cs, ts) < len(cs) else None  # the result leaves context at the next compaction
         later = (bisect.bisect_left(main_ts, nc) if nc is not None else len(main_ts)) - bisect.bisect_right(main_ts, ts)
-        carry = est * later * avg_in * 0.1 / 1e6
+        carry = est * later * avg_read / 1e6
         big_results.append((carry, est, later, name, summ, ts))
     big_results.sort(reverse=True)
     dup_reads = sorted(((n, f) for f, n in reads.items() if n >= 3), reverse=True)[:8]

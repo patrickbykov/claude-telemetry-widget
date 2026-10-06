@@ -15,7 +15,7 @@ import ingest, charts
 
 ingest.run()
 C = json.load(open(os.path.join(D, "config.json")))
-from pricing import P, family, price, parts, big
+from pricing import family, price, parts, big
 
 def clean(s):
     # '|' starts SwiftBar parameters (bash=, param1=...), so transcript-derived text must never contain it
@@ -42,7 +42,7 @@ for ts, ses, proj, model, inp, out, cr, c5, c1, sub in raw:
     pt = parts(model, inp, out, cr, c5, c1)
     ctx = inp + cr + c5 + c1
     cold = (not sub and prev[0] == ses and ctx > 20_000 and cr < 0.1 * ctx)
-    over = (pt["write"] - (c5 + c1) * price(model)["in"] * 0.1 / 1e6) if cold else 0.0
+    over = (pt["write"] - (c5 + c1) * price(model)["read"] / 1e6) if cold else 0.0
     R.append(dict(t=t, ses=ses, proj=proj, model=model, fam=family(model), inp=inp, out=out, cr=cr,
                   cc=c5 + c1, ctx=ctx, bigt=big(model), pt=pt, cost=sum(pt.values()), cold=cold, over=over, sub=sub))
     if not sub:

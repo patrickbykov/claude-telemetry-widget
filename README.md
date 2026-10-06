@@ -42,7 +42,7 @@ To uninstall: `launchctl bootout gui/$(id -u)/local.claude-cache-watch`, then de
 ## Configure
 
 - `config.json`: thresholds and menu bar layout (`bar` section, see `_help`).
-- `prices.json`: USD per million tokens. Values are assumptions; check them against the current Anthropic pricing.
+- `prices.json`: USD per million tokens per model (matched by substring of the model id), including the cache-read price. Checked against the Anthropic pricing page on 2026-10-06; re-check when new models ship.
 
 `open-session.sh` expects the CLI at `~/.local/bin/claude`.
 
