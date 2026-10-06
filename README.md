@@ -41,15 +41,4 @@ When run through `curl`, it clones the repo to `~/.claude-telemetry-widget` (ove
 
 Menu: **Update** (an orange **Update available** row appears when upstream has new commits; cache-watch checks once a day). Or run `~/.claude-telemetry-widget/update.sh` (or `./update.sh` from your clone). It pulls with `--ff-only`, then re-runs the installer. If you edited `config.json` or `prices.json`, it stops and prints how to stash them first.
 
-To uninstall: `launchctl bootout gui/$(id -u)/local.claude-cache-watch`, then delete `~/Library/LaunchAgents/local.claude-cache-watch.plist`, the plugin symlink, and the two `settings.json` entries.
-
-## Configure
-
-- `config.json`: thresholds and menu bar layout (`bar` section, see `_help`).
-- `prices.json`: USD per million tokens per model (matched by substring of the model id), including the cache-read price. Checked against the Anthropic pricing page on 2026-10-06; re-check when new models ship.
-
-`open-session.sh` finds the CLI on your `PATH`, falling back to `~/.local/bin/claude`.
-
-## License
-
-MIT
+To uninstall, run `./uninstall.sh` (add `--purge` to also delete `usage.db`, reports and the venv). It stops the launchd job and removes the plugin symlink and the two `settings.json` entries; SwiftBar and the folder stay.
