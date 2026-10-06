@@ -353,9 +353,10 @@ def build(sid):
     top_turns = "\n".join(f"- {usd(c)}: \"{prompts[i][1][:110]}\"" for c, i in turns[:3])
     top_pass = "\n".join(f"- {n} result ~{tok(e)} tokens (\"{short(sm, 60)}\") stayed in context for {l} requests, carry cost {usd(c)}"
                          for c, e, l, n, sm, _ in big_results[:3])
-    prompt = f"""I am reviewing the cost of a Claude Code session and want to work more cost-effectively.
+    prompt = f"""Audit the cost of a Claude Code session and recommend how to run the next one cheaper.
 
 Session: "{title}" ({os.path.basename(S['cwd'].rstrip('/'))}), {t0.strftime('%b %d %H:%M')} to {t1.strftime('%b %d %H:%M')}.
+Transcript: ~/.claude/projects/*/{sid}.jsonl (verify the findings below against it).
 Total estimated cost {usd(total)} over {len(rows)} requests; peak context {tok(peak['ctx'])}; {len(S['compactions'])} compaction(s); subagents {usd(sub_cost)}.
 
 Findings from the usage monitor:
@@ -367,11 +368,10 @@ Costliest prompts:
 Biggest context passengers:
 {top_pass or '- n/a'}
 
-Please:
-1. Diagnose which working habits most likely caused these costs (long single session, huge tool outputs, repeated reads, idle gaps, wrong model for the job).
-2. Propose concrete changes ordered by estimated savings: CLAUDE.md rules, hooks, settings (e.g. earlier auto-compact threshold), when to use /clear vs /compact vs a subagent, and a handoff-file routine.
-3. For each change give the exact text or setting to apply. Propose first; do not edit any file until I approve.
-Keep it short."""
+Deliver:
+1. Root causes: the working habits behind these costs, each tied to a finding above (long single session, huge tool outputs, repeated reads, idle gaps, wrong model for the job).
+2. At most 5 changes, ordered by estimated savings. Each gives the exact text or setting to apply: a CLAUDE.md rule, hook, setting (e.g. earlier auto-compact threshold), or a routine for when to /clear, /compact or use a subagent, plus a handoff file.
+Present the changes and wait for my approval before editing any file."""
 
     kpis = [("Total cost", usd(total)), ("Duration", f"{span/3600:.1f} h"), ("Requests", f"{len(rows):,}"),
             ("Peak context", tok(peak["ctx"])), ("Cache hit", f"{sum(r['cr'] for r in rows)/max(1,sum(r['inp']+r['cr']+r['c5']+r['c1'] for r in rows))*100:.0f}%"),
