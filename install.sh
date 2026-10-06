@@ -13,19 +13,25 @@ SRC="$(dirname "$0")"
 if [ ! -f "$SRC/claude-usage.2m.py" ]; then
   command -v git >/dev/null || { echo "git is required: run 'xcode-select --install' and retry"; exit 1; }
   DEST="${INSTALL_DIR:-$HOME/.claude-telemetry-widget}"
-  [ -d "$DEST/.git" ] && git -C "$DEST" pull -q --ff-only || git clone -q "https://github.com/$REPO.git" "$DEST"
+  if [ -d "$DEST/.git" ]; then
+    git -C "$DEST" pull -q --ff-only || { echo "could not update $DEST (local changes or no network): fix it or remove the folder, then retry"; exit 1; }
+  else
+    git clone -q "https://github.com/$REPO.git" "$DEST"
+  fi
   exec sh "$DEST/install.sh" "$@"
 fi
 
 D="$(cd "$SRC" && pwd)"
-PLUGINS="${SWIFTBAR_PLUGINS:-$HOME/swiftbar-plugins}"
+# keep an existing SwiftBar plugin folder so the user's other plugins stay visible
+CURRENT="$(defaults read com.ameba.SwiftBar PluginDirectory 2>/dev/null || true)"
+PLUGINS="${SWIFTBAR_PLUGINS:-${CURRENT:-$HOME/swiftbar-plugins}}"
 SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
 PY="$D/.venv/bin/python3"
 
 # ---- prerequisites: report everything first, then offer to install what is missing ----
 MISSING=""
 [ -d /Applications/SwiftBar.app ] || MISSING="$MISSING swiftbar"
-python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null || command -v python3.12 >/dev/null || MISSING="$MISSING python@3.12"
+python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null || command -v python3.12 >/dev/null || MISSING="$MISSING python@3.12"
 for p in swiftbar python@3.12; do
   case "$MISSING" in *"$p"*) echo "missing: $p" ;; *) echo "ok:      $p" ;; esac
 done
@@ -48,7 +54,7 @@ if [ -n "$MISSING" ]; then
     *) echo "Install the missing prerequisites and re-run."; exit 1 ;;
   esac
 fi
-PYBIN="$(command -v python3.12 || command -v python3)"
+PYBIN="$(command -v python3.12 || command -v python3)"  # Pillow ships wheels for 3.9+
 
 "$PYBIN" -m venv "$D/.venv"
 "$D/.venv/bin/pip" install -q pillow
@@ -57,14 +63,14 @@ chmod +x "$D"/claude-usage.2m.py "$D"/cache-watch.py "$D"/compact-to-file.py "$D
 
 mkdir -p "$PLUGINS"
 ln -sf "$D/claude-usage.2m.py" "$PLUGINS/claude-usage.2m.py"
-defaults write com.ameba.SwiftBar PluginDirectory "$PLUGINS"
+[ "$CURRENT" = "$PLUGINS" ] || defaults write com.ameba.SwiftBar PluginDirectory "$PLUGINS"
 
 PLIST="$HOME/Library/LaunchAgents/local.claude-cache-watch.plist"
 mkdir -p "$(dirname "$PLIST")"
 "$PY" - "$PLIST" "$D/cache-watch.py" <<'PYE'
 import plistlib, sys
-plist = {"Label": "local.claude-cache-watch", "ProgramArguments": [sys.argv[2]], "StartInterval": 30,
-         "RunAtLoad": True, "ProcessType": "Background", "LowPriorityIO": True}
+plist = {"Label": "local.claude-cache-watch", "ProgramArguments": [sys.executable, sys.argv[2]], "StartInterval": 30,
+         "StandardErrorPath": sys.argv[2][:-3] + ".err", "RunAtLoad": True, "ProcessType": "Background", "LowPriorityIO": True}
 with open(sys.argv[1], "wb") as fh:
     plistlib.dump(plist, fh)
 PYE
@@ -73,7 +79,7 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 # merge into Claude Code settings; an existing, different statusLine is left alone
 mkdir -p "$(dirname "$SETTINGS")"
-[ -f "$SETTINGS" ] && cp "$SETTINGS" "$SETTINGS.bak"
+[ -f "$SETTINGS" ] && [ ! -e "$SETTINGS.bak" ] && cp "$SETTINGS" "$SETTINGS.bak"  # keep the pre-install original across re-runs
 "$PY" - "$SETTINGS" "$D" <<'PYE'
 import json, os, shlex, sys
 path, d = sys.argv[1:3]
@@ -95,4 +101,4 @@ osascript -e 'tell application "System Events" to if not (exists login item "Swi
 pkill -x SwiftBar 2>/dev/null || true
 open -a SwiftBar
 echo "Installed. The Claude usage item is in the menu bar; plan limits appear after the next Claude Code status update."
-echo "Settings backup: $SETTINGS.bak"
+[ -e "$SETTINGS.bak" ] && echo "Original settings backup: $SETTINGS.bak"

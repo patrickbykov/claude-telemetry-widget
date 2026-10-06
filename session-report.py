@@ -223,7 +223,7 @@ def build(sid):
     cold = []
     prev = None
     for r in main:
-        if prev and r["ctx"] > 20_000 and r["cr"] < 0.1 * r["ctx"]:
+        if prev and r["ctx"] > 20_000 and r["cr"] < 0.1 * r["ctx"] and r["model"] == prev["model"] and r["ctx"] >= 0.8 * prev["ctx"]:  # not after a /clear, compaction or model switch
             p = price(r["model"])
             over = ((r["c5"] * 1.25 + r["c1"] * 2.0) * p["in"] - (r["c5"] + r["c1"]) * p["read"]) / 1e6
             cold.append(dict(ts=r["ts"], gap=(r["ts"] - prev["ts"]).total_seconds() / 60, ctx=r["ctx"], over=over))

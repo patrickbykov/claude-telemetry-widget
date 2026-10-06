@@ -11,15 +11,20 @@ from datetime import datetime, timedelta, timezone
 D = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, D)
 import use_venv  # noqa: F401  re-runs under the venv (Pillow)
-import ingest, charts
+import ingest
+try:
+    import charts
+except ImportError:  # Pillow missing: the venv is gone or broken
+    print("Claude: run install.sh again (Pillow missing) | color=red")
+    sys.exit(0)
 
 ingest.run()
 C = json.load(open(os.path.join(D, "config.json")))
 from pricing import family, price, parts, big
 
 def clean(s):
-    # '|' starts SwiftBar parameters (bash=, param1=...), so transcript-derived text must never contain it
-    return re.sub(r"[|\r\n]+", " ", s or "")
+    # '|' starts SwiftBar parameters (bash=, param1=...) and ESC recolours ansi rows, so transcript-derived text must carry neither
+    return re.sub(r"[|\x00-\x1f\x7f]+", " ", s or "")
 
 def q(v):
     return '"' + clean(str(v)).replace('"', "") + '"'
@@ -34,19 +39,20 @@ cut30 = (now - timedelta(days=35)).strftime("%Y-%m-%dT%H:%M:%S")
 raw = db.execute("SELECT ts, session, project, model, inp, out, cache_read, cc_5m, cc_1h, subagent "
                  "FROM requests WHERE ts >= ? OR session IN (SELECT session FROM requests WHERE ts >= ?) "
                  "ORDER BY session, ts", (cut30, cut30)).fetchall()  # whole history of recent sessions, so their totals are complete
-R, prev = [], (None, None)
+R, prev = [], (None, None, 0, None)  # session, time, context, model of the previous main-thread request
 BIG = C["ctx_big_tokens"]
 for ts, ses, proj, model, inp, out, cr, c5, c1, sub in raw:
     proj = clean(proj)
     t = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
     pt = parts(model, inp, out, cr, c5, c1)
     ctx = inp + cr + c5 + c1
-    cold = (not sub and prev[0] == ses and ctx > 20_000 and cr < 0.1 * ctx)
+    # a rewrite of the same-size context on the same model is a cache miss; a /clear, compaction or model switch rewrites legitimately
+    cold = (not sub and prev[0] == ses and ctx > 20_000 and cr < 0.1 * ctx and model == prev[3] and ctx >= 0.8 * prev[2])
     over = (pt["write"] - (c5 + c1) * price(model)["read"] / 1e6) if cold else 0.0
     R.append(dict(t=t, ses=ses, proj=proj, model=model, fam=family(model), inp=inp, out=out, cr=cr,
                   cc=c5 + c1, ctx=ctx, bigt=big(model), pt=pt, cost=sum(pt.values()), cold=cold, over=over, sub=sub))
     if not sub:
-        prev = (ses, t)
+        prev = (ses, t, ctx, model)
 
 def scope(since):
     return [r for r in R if r["t"] >= since]

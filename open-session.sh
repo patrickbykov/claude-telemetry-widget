@@ -4,7 +4,7 @@ CWD="$1"; SID="$2"
 [ -d "$CWD" ] || CWD="$HOME"
 case "$SID" in *[!A-Za-z0-9-]*|"") exit 1 ;; esac
 Q=$(printf '%s' "$CWD" | sed "s/'/'\\\\''/g")   # POSIX single-quote escaping
-CMD="cd '$Q' && ~/.local/bin/claude --resume $SID"
+CMD="cd '$Q' && PATH=\"\$PATH:\$HOME/.local/bin\" claude --resume $SID"  # claude may live on PATH (brew, npm) or in ~/.local/bin
 # the command travels as an osascript argument, never as part of the script text
 if [ -d /Applications/iTerm.app ]; then
   osascript - "$CMD" <<'OSA'

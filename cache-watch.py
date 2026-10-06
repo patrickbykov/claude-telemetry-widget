@@ -54,6 +54,18 @@ def last_request(path, now):
             return newest, one_h
         n *= 4
 
+def session_title(sid):
+    """Title from usage.db, or None while the plugin has not created the database yet."""
+    try:
+        db = sqlite3.connect("file:" + os.path.join(D, "usage.db") + "?mode=ro", uri=True)
+        try:
+            row = db.execute("SELECT title FROM sessions WHERE session=?", (sid,)).fetchone()
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return None
+    return row[0] if row else None
+
 def main():
     now = time.time()
     try:
@@ -61,7 +73,6 @@ def main():
             state = json.load(fh)
     except Exception:
         state = {}
-    db = None
     for path in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")):
         if now - os.path.getmtime(path) > 3600:
             continue
@@ -83,10 +94,7 @@ def main():
         if cold < MIN_USD or state.get(sid) == key:
             continue
         state[sid] = key
-        if db is None:
-            db = sqlite3.connect(os.path.join(D, "usage.db"))
-        row = db.execute("SELECT title FROM sessions WHERE session=?", (sid,)).fetchone()
-        title = (row[0] if row and row[0] else os.path.basename(os.path.dirname(path)).split("-")[-1])[:60]
+        title = (session_title(sid) or os.path.basename(os.path.dirname(path)).split("-")[-1])[:60]
         notify(title, int(left), ctx, cold, ttl, model)
     with open(STATE + ".tmp", "w") as fh:
         json.dump(state, fh)

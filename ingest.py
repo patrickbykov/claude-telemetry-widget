@@ -50,7 +50,7 @@ def ingest_file(db, path, off, project):
                 project = root_project(json.loads(line)["cwd"])
             except (ValueError, KeyError):
                 pass
-        if b'"type":"user"' in line and b'"isMeta"' not in line and b'tool_result' not in line:
+        if not sub and b'"type":"user"' in line and b'"isMeta"' not in line and b'tool_result' not in line:
             try:
                 d = json.loads(line)
                 c = d["message"]["content"]
@@ -93,7 +93,7 @@ def ingest_file(db, path, off, project):
                      u.get("input_tokens", 0), u.get("output_tokens", 0),
                      u.get("cache_read_input_tokens", 0), c5, c1, sub])
     for r in rows:
-        r[3] = project or os.path.basename(os.path.dirname(path))
+        r[3] = project or os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(path))) if sub else os.path.dirname(path))
     db.executemany("INSERT OR REPLACE INTO requests VALUES(?,?,?,?,?,?,?,?,?,?,?)", rows)
     for sid, (t, custom) in titles.items():
         old = db.execute("SELECT custom FROM sessions WHERE session=?", (sid,)).fetchone()
