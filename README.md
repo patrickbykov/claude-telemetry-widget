@@ -1,6 +1,23 @@
-# Claude Code telemetry widget
+<h1 align="center">Claude Code telemetry widget</h1>
 
-A macOS menu bar plugin ([SwiftBar](https://github.com/swiftbar/SwiftBar)) that shows Claude Code cost, context size, plan limits and prompt-cache state. It reads your local transcripts in `~/.claude/projects`. Nothing leaves your machine.
+<p align="center">
+  Your Claude Code spend, context and cache state, live in the macOS menu bar.<br>
+  Read from local transcripts. Nothing leaves your machine.
+</p>
+
+<p align="center">
+  <a href="https://github.com/patrickbykov/claude-telemetry-widget/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/patrickbykov/claude-telemetry-widget?color=d97757"></a>
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-SwiftBar-black?logo=apple">
+  <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-3776ab?logo=python&logoColor=white">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-green"></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#what-you-get">Features</a> ·
+  <a href="#update">Update</a> ·
+  <a href="#uninstall">Uninstall</a>
+</p>
 
 <p align="center">
   <img src="docs/menu.png" alt="Menu: plan limits, items needing attention, active sessions, spend" width="400">
@@ -8,6 +25,8 @@ A macOS menu bar plugin ([SwiftBar](https://github.com/swiftbar/SwiftBar)) that 
 </p>
 
 ## Quick start
+
+> One line, about a minute. Safe to re-run.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/patrickbykov/claude-telemetry-widget/main/install.sh | sh
@@ -21,10 +40,10 @@ The Claude usage item appears in the menu bar. Plan limits show after the next C
 
 | Feature | What it does |
 |---|---|
-| **Menu bar** | 5h/7d plan usage, active sessions, items needing attention (oversized context, cold cache) |
-| **Session report** | `session-report.py <session-id>` writes a self-contained HTML cost review |
-| **Cache watch** | A launchd job notifies you shortly before a session's prompt cache expires |
-| **Compaction saver** | A `PostCompact` hook saves each compaction summary to `~/.claude/compactions/` |
+| 📊 **Menu bar** | 5h/7d plan usage, active sessions, items needing attention (oversized context, cold cache) |
+| 🧾 **Session report** | `session-report.py <session-id>` writes a self-contained HTML cost review |
+| ⏳ **Cache watch** | A launchd job notifies you shortly before a session's prompt cache expires |
+| 💾 **Compaction saver** | A `PostCompact` hook saves each compaction summary to `~/.claude/compactions/` |
 
 ## Install
 
