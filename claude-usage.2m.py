@@ -373,7 +373,15 @@ for sid, s_ in sorted(ss.items(), key=lambda x: -x[1]["cost7"])[:6]:
     session_rows(sid, s_, f"{usd(s_['cost7']):>7}  ")
 
 print("---")
+try:
+    with open(os.path.join(D, "update.json")) as fh:
+        behind = json.load(fh).get("behind", 0)
+except (OSError, ValueError):
+    behind = 0
+if behind:
+    print(f"Update available ({behind} new) | sfimage=arrow.down.circle color=orange bash={D}/update.sh terminal=true")
 print("Refresh now | sfimage=arrow.clockwise refresh=true shortcut=CMD+R")
 print(f"Edit prices | shell=/usr/bin/open param1=-t param2={D}/prices.json terminal=false")
 print(f"Customize status bar | shell=/usr/bin/open param1=-t param2={D}/config.json terminal=false")
 print(f"Edit thresholds | shell=/usr/bin/open param1=-t param2={D}/config.json terminal=false")
+print(f"Update | sfimage=arrow.triangle.2.circlepath bash={D}/update.sh terminal=true")

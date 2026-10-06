@@ -67,6 +67,22 @@ def session_title(sid):
         return None
     return row[0] if row else None
 
+def check_update():
+    """Once a day: fetch and record how many commits upstream is ahead, for the menu's Update item."""
+    f = os.path.join(D, "update.json")
+    if not os.path.isdir(os.path.join(D, ".git")) or (os.path.exists(f) and time.time() - os.path.getmtime(f) < 86400):
+        return
+    n = 0
+    try:
+        git = lambda *a: subprocess.run(["git", "-C", D, *a], capture_output=True, text=True, timeout=30)
+        if git("fetch", "-q").returncode == 0:
+            r = git("rev-list", "--count", "HEAD..@{u}")
+            n = int(r.stdout.strip() or 0) if r.returncode == 0 else 0
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        pass
+    with open(f, "w") as fh:
+        json.dump({"behind": n}, fh)
+
 def main():
     now = time.time()
     try:
@@ -113,6 +129,7 @@ def notify(title, left, ctx, cold, ttl, model):
 if __name__ == "__main__":
     try:
         main()
+        check_update()  # after main so a slow fetch never delays a warning
     except Exception as e:
         with open(os.path.join(D, "cache-watch.log"), "a") as fh:
             fh.write(f"{datetime.now().isoformat(timespec='seconds')} {e!r}\n")

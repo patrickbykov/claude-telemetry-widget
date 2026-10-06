@@ -37,6 +37,10 @@ The script is safe to re-run. It first checks the prerequisites (SwiftBar, Pytho
 
 When run through `curl`, it clones the repo to `~/.claude-telemetry-widget` (override with `INSTALL_DIR`). The Claude usage item appears in the menu bar; plan limits show after the next Claude Code status update.
 
+## Updating
+
+Menu: **Update** (an orange **Update available** row appears when upstream has new commits; cache-watch checks once a day). Or run `~/.claude-telemetry-widget/update.sh` (or `./update.sh` from your clone). It pulls with `--ff-only`, then re-runs the installer. If you edited `config.json` or `prices.json`, it stops and prints how to stash them first.
+
 To uninstall: `launchctl bootout gui/$(id -u)/local.claude-cache-watch`, then delete `~/Library/LaunchAgents/local.claude-cache-watch.plist`, the plugin symlink, and the two `settings.json` entries.
 
 ## Configure
