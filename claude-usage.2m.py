@@ -41,6 +41,7 @@ raw = db.execute("SELECT ts, session, project, model, inp, out, cache_read, cc_5
                  "ORDER BY session, ts", (cut30, cut30)).fetchall()  # whole history of recent sessions, so their totals are complete
 R, prev = [], (None, None, 0, None)  # session, time, context, model of the previous main-thread request
 BIG = C["ctx_big_tokens"]
+ttl_state, ttl_model = {}, {}  # per-session TTL policy, forward-filled from the last write (c1/c5); c1==0 on a cache-hit read does NOT mean 5m
 for ts, ses, proj, model, inp, out, cr, c5, c1, sub in raw:
     proj = clean(proj)
     t = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
@@ -49,8 +50,16 @@ for ts, ses, proj, model, inp, out, cr, c5, c1, sub in raw:
     # a rewrite of the same-size context on the same model is a cache miss; a /clear, compaction or model switch rewrites legitimately
     cold = (not sub and prev[0] == ses and ctx > 20_000 and cr < 0.1 * ctx and model == prev[3] and ctx >= 0.8 * prev[2])
     over = (pt["write"] - (c5 + c1) * price(model)["read"] / 1e6) if cold else 0.0
+    if ttl_model.get(ses) != model:  # a model switch invalidates the cache, so any earlier TTL evidence no longer applies
+        ttl_state[ses] = None
+        ttl_model[ses] = model
+    if c1:
+        ttl_state[ses] = "1h"
+    elif c5:
+        ttl_state[ses] = "5m"
     R.append(dict(t=t, ses=ses, proj=proj, model=model, fam=family(model), inp=inp, out=out, cr=cr,
-                  cc=c5 + c1, c1=c1, ctx=ctx, bigt=big(model), pt=pt, cost=sum(pt.values()), cold=cold, over=over, sub=sub))
+                  cc=c5 + c1, c1=c1, ctx=ctx, bigt=big(model), pt=pt, cost=sum(pt.values()), cold=cold, over=over, sub=sub,
+                  ttl=ttl_state.get(ses) or "5m"))
     if not sub:
         prev = (ses, t, ctx, model)
 
@@ -133,8 +142,8 @@ for sid_, r in sorted(last_main.items(), key=lambda x: -x[1]["t"].timestamp()):
     n_active += 1
     nm = (titles.get(sid_) or r["proj"])[:26]
     idle_min = (tz_now - r["t"]).total_seconds() / 60
-    ttl_ = "1 hour" if r["c1"] else "5 min"
-    ttl_min = 60 if r["c1"] else 5
+    ttl_ = "1 hour" if r["ttl"] == "1h" else "5 min"
+    ttl_min = 60 if r["ttl"] == "1h" else 5
     cold_now = idle_min > ttl_min  # cache warmth right now (idle vs TTL), not r["cold"] which only flags a past cache-miss rewrite
     dots.append("bad" if r["ctx"] > 2 * r["bigt"] else "warn" if r["ctx"] > r["bigt"] or cold_now else "ok")
     lim_ = r["bigt"] // 1000
@@ -142,6 +151,8 @@ for sid_, r in sorted(last_main.items(), key=lambda x: -x[1]["t"].timestamp()):
         att.append(("bad", f"“{nm}” · {r['ctx']//1000}k context, cold cache", f"Over twice the {lim_}k cost threshold and the cache has expired: summarising this much costs more than restarting. Write a handoff note, then /clear.", HANDOFF))
     elif r["ctx"] > 2 * r["bigt"]:
         att.append(("bad", f"“{nm}” · {r['ctx']//1000}k context", f"Over twice the {lim_}k cost threshold, cache still warm. Run /compact with a focus note rather than restarting cold.", "compact"))
+    elif r["ctx"] > r["bigt"] and cold_now:
+        att.append(("warn", f"“{nm}” · {r['ctx']//1000}k context, cold cache", f"Over the {lim_}k cost threshold and the cache has already expired ({idle_min:.0f}m idle, TTL {ttl_}): compacting now still reprocesses the whole context. Reply sooner next time, or /clear and resume from a summary.", "compact"))
     elif r["ctx"] > r["bigt"]:
         att.append(("warn", f"“{nm}” · {r['ctx']//1000}k context", f"Over the {lim_}k cost threshold. Run /compact at the next task boundary while the cache is warm.", "compact"))
     elif cold_now:
