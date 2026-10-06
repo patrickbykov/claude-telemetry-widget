@@ -6,4 +6,3 @@ T=$(mktemp "$D/statusline.XXXXXX") || exit 1
 trap 'rm -f "$T" "$T.pub"' EXIT
 cat > "$T"
 cp "$T" "$T.pub" && mv "$T.pub" "$D/statusline.json"
-npx -y ccstatusline@2.2.30 < "$T"
