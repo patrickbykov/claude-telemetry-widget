@@ -50,13 +50,14 @@ for ts, ses, proj, model, inp, out, cr, c5, c1, sub in raw:
     # a rewrite of the same-size context on the same model is a cache miss; a /clear, compaction or model switch rewrites legitimately
     cold = (not sub and prev[0] == ses and ctx > 20_000 and cr < 0.1 * ctx and model == prev[3] and ctx >= 0.8 * prev[2])
     over = (pt["write"] - (c5 + c1) * price(model)["read"] / 1e6) if cold else 0.0
-    if ttl_model.get(ses) != model:  # a model switch invalidates the cache, so any earlier TTL evidence no longer applies
-        ttl_state[ses] = None
-        ttl_model[ses] = model
-    if c1:
-        ttl_state[ses] = "1h"
-    elif c5:
-        ttl_state[ses] = "5m"
+    if not sub:  # subagent requests share the parent session ID but run their own model/cache, so they must not perturb the main thread's TTL evidence
+        if ttl_model.get(ses) != model:  # a model switch invalidates the cache, so any earlier TTL evidence no longer applies
+            ttl_state[ses] = None
+            ttl_model[ses] = model
+        if c1:
+            ttl_state[ses] = "1h"
+        elif c5:
+            ttl_state[ses] = "5m"
     R.append(dict(t=t, ses=ses, proj=proj, model=model, fam=family(model), inp=inp, out=out, cr=cr,
                   cc=c5 + c1, c1=c1, ctx=ctx, bigt=big(model), pt=pt, cost=sum(pt.values()), cold=cold, over=over, sub=sub,
                   ttl=ttl_state.get(ses) or "5m"))
