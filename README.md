@@ -40,7 +40,7 @@ The Claude usage item appears in the menu bar. Plan limits show after the next C
 
 | Feature | What it does |
 |---|---|
-| 📊 **Menu bar** | 5h/7d plan usage, active sessions, items needing attention (oversized context, cold cache) |
+| 📊 **Menu bar** | 5h/7d plan usage, active sessions, items needing attention (oversized context, cold cache, 🔵 quality-zone notice on 1M-context sessions) |
 | 🧾 **Session report** | `session-report.py <session-id>` writes a self-contained HTML cost review |
 | ⏳ **Cache watch** | A launchd job notifies you shortly before a session's prompt cache expires |
 | 💾 **Compaction saver** | A `PostCompact` hook saves each compaction summary to `~/.claude/compactions/` |
