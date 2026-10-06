@@ -20,7 +20,7 @@ except ImportError:  # Pillow missing: the venv is gone or broken
 
 ingest.run()
 C = json.load(open(os.path.join(D, "config.json")))
-from pricing import family, price, parts, big
+from pricing import family, price, parts, big, smart
 
 def clean(s):
     # '|' starts SwiftBar parameters (bash=, param1=...) and ESC recolours ansi rows, so transcript-derived text must carry neither
@@ -39,8 +39,18 @@ cut30 = (now - timedelta(days=35)).strftime("%Y-%m-%dT%H:%M:%S")
 raw = db.execute("SELECT ts, session, project, model, inp, out, cache_read, cc_5m, cc_1h, subagent "
                  "FROM requests WHERE ts >= ? OR session IN (SELECT session FROM requests WHERE ts >= ?) "
                  "ORDER BY session, ts", (cut30, cut30)).fetchall()  # whole history of recent sessions, so their totals are complete
+try:
+    SESSION_WINDOW = dict(db.execute("SELECT session, window FROM session_window"))
+except sqlite3.OperationalError:  # table doesn't exist yet (fresh install, no statusline write)
+    SESSION_WINDOW = {}
+peak_ctx = {}
+for _ts, _ses, _proj, _model, _inp, _out, _cr, _c5, _c1, _sub in raw:
+    if not _sub:
+        peak_ctx[_ses] = max(peak_ctx.get(_ses, 0), _inp + _cr + _c5 + _c1)
+WINDOW = {ses_: SESSION_WINDOW.get(ses_) or (1_000_000 if peak_ctx.get(ses_, 0) > 200_000 else 200_000)
+          for ses_ in peak_ctx}
+
 R, prev = [], (None, None, 0, None)  # session, time, context, model of the previous main-thread request
-BIG = C["ctx_big_tokens"]
 ttl_state, ttl_model = {}, {}  # per-session TTL policy, forward-filled from the last write (c1/c5); c1==0 on a cache-hit read does NOT mean 5m
 for ts, ses, proj, model, inp, out, cr, c5, c1, sub in raw:
     proj = clean(proj)
@@ -58,8 +68,10 @@ for ts, ses, proj, model, inp, out, cr, c5, c1, sub in raw:
             ttl_state[ses] = "1h"
         elif c5:
             ttl_state[ses] = "5m"
+    win = WINDOW.get(ses, 200_000)
     R.append(dict(t=t, ses=ses, proj=proj, model=model, fam=family(model), inp=inp, out=out, cr=cr,
-                  cc=c5 + c1, c1=c1, ctx=ctx, bigt=big(model), pt=pt, cost=sum(pt.values()), cold=cold, over=over, sub=sub,
+                  cc=c5 + c1, c1=c1, ctx=ctx, window=win, smartt=smart(model, win), bigt=big(model, win),
+                  pt=pt, cost=sum(pt.values()), cold=cold, over=over, sub=sub,
                   ttl=ttl_state.get(ses) or "5m"))
     if not sub:
         prev = (ses, t, ctx, model)
@@ -158,6 +170,11 @@ for sid_, r in sorted(last_main.items(), key=lambda x: -x[1]["t"].timestamp()):
         att.append(("warn", f"“{nm}” · {r['ctx']//1000}k context", f"Over the {lim_}k cost threshold. Run /compact at the next task boundary while the cache is warm.", "compact"))
     elif cold_now:
         att.append(("warn", f"“{nm}” · cache cold ({idle_min:.0f}m idle)", f"Idle past the {ttl_} cache window: resuming now reprocesses the whole context. Reply sooner next time, or /compact before stepping away.", "compact"))
+    if r["smartt"] < r["ctx"] <= r["bigt"]:
+        tag = " (1M)" if r["window"] >= 1_000_000 else ""
+        att.append(("info", f"“{nm}” · {r['ctx']//1000}k context",
+                     f"Past the ~{r['smartt']//1000}k smart zone for {r['fam']}{tag}, where quality "
+                     "often degrades. /clear or write a handoff at the next task boundary.", ""))
 for r_ in lim_hot:
     att.append(("bad" if r_[1] >= 90 else "warn", f"{r_[0]} at {r_[1]:.0f}%", "Move routine work to sonnet or haiku, and delegate noisy commands to subagents.", ""))
 TODAY_FIX = (("cache hit", "Avoid editing CLAUDE.md or switching models mid-session: both invalidate the cache."),
@@ -179,11 +196,12 @@ OK = "bash=/usr/bin/true terminal=false"       # makes info rows enabled (not gr
 H = "size=11 color=#6e6e73,#98989d"            # section headers (light,dark pair)
 SPARK = "▁▂▃▄▅▆▇█"
 rgb = lambda c, t: f"\x1b[38;2;{c[0]};{c[1]};{c[2]}m{t}\x1b[0m"
-DOTC = {"ok": (52, 199, 89), "warn": (255, 149, 0), "bad": (255, 59, 48)}  # Apple systemGreen / systemOrange / systemRed
-SHAPE = {"ok": "●", "warn": "▲", "bad": "◆"}   # status readable without colour
+DOTC = {"ok": (52, 199, 89), "warn": (255, 149, 0), "bad": (255, 59, 48), "info": (0, 122, 255)}  # + Apple systemBlue
+SHAPE = {"ok": "●", "warn": "▲", "bad": "◆", "info": "●"}   # status readable without colour
 mark = lambda d_: rgb(DOTC[d_], SHAPE[d_])
 SEV = {"bad": ("exclamationmark.octagon.fill", "#ff453a", "#c62828,#ff453a"),
-       "warn": ("exclamationmark.triangle.fill", "#ffb800", "#b45309,#fbbf24")}
+       "warn": ("exclamationmark.triangle.fill", "#ffb800", "#b45309,#fbbf24"),
+       "info": ("info.circle.fill", "#0a84ff", "#007aff,#0a84ff")}
 COPY = f"bash={D}/copy-text.sh terminal=false"
 
 def wrap(text, n=72):
@@ -208,9 +226,9 @@ def to_rgb(v):
     v = v.lstrip("#")
     return tuple(int(v[i:i + 2], 16) for i in (0, 2, 4)) if re.fullmatch(r"[0-9a-fA-F]{6}", v) else None
 h7 = next((r[1] for r in lim_rows if r[0].lower().startswith("week")), None)
-worst = "bad" if any(a_[0] == "bad" for a_ in att) else "warn" if att else "ok"
+worst = "bad" if any(a_[0] == "bad" for a_ in att) else "warn" if any(a_[0] == "warn" for a_ in att) else "ok"
 M_ = {"severity": {"ok": 0, "warn": 1, "bad": 2}[worst], "5h": h5 or 0, "7d": h7 or 0, "today": td["cost"],
-      "active": n_active, "attention": len(att), "cold": sum(1 for a_ in att if "cold" in a_[1]),
+      "active": n_active, "attention": sum(1 for a_ in att if a_[0] != "info"), "cold": sum(1 for a_ in att if "cold" in a_[1]),
       "ctx_k": max([r["ctx"] for r in last_main.values()] + [0]) / 1000}
 OPS = {">=": lambda x, y: x >= y, ">": lambda x, y: x > y, "<=": lambda x, y: x <= y, "<": lambda x, y: x < y, "==": lambda x, y: x == y}
 bar_rgb = to_rgb(BAR.get("default_color"))
@@ -221,7 +239,7 @@ for rule in BAR.get("color_rules", []):
     except (KeyError, ValueError, TypeError):
         continue
 FILL = {"5h": h5, "7d": h7, "none": 0}.get(BAR.get("fill", "5h"), h5)
-CNT = {"active": n_active, "attention": len(att), "cold": M_["cold"], "none": None}.get(BAR.get("count", "active"), n_active)
+CNT = {"active": n_active, "attention": M_["attention"], "cold": M_["cold"], "none": None}.get(BAR.get("count", "active"), n_active)
 txt = (BAR.get("text") or "").replace("{today}", usd(M_["today"])).replace("{5h}", f"{h5 or 0:.0f}").replace("{7d}", f"{h7 or 0:.0f}")
 if os.path.exists(os.path.join(D, "bar-test")):  # test mode: every battery state in a row. Remove the file bar-test to turn off
     G = (142, 142, 147)
@@ -245,7 +263,8 @@ else:
 # ---- Now: needs attention (items with a submenu: fix + copy action) ----
 print("---")
 if att:
-    att.sort(key=lambda a: a[0] != "bad")
+    _RANK = {"bad": 0, "warn": 1, "info": 2}
+    att.sort(key=lambda a: _RANK[a[0]])
     print(f"Needs attention | {H}")
     for sev, title, fix, copy in att[:5]:
         sym, sfc, txtc = SEV[sev]
@@ -264,7 +283,8 @@ else:
 ss = {}
 for r in R:  # every loaded request, so sessions that started before the 7-day window are complete
     s_ = ss.setdefault(r["ses"], dict(cost=0, proj=r["proj"], first=r["t"], last=r["t"], n=0, cr=0, tot=0,
-                                      maxctx=0, curctx=0, cold=0, cost7=0, bigt=big(r['model']), model=r['model']))
+                                      maxctx=0, curctx=0, cold=0, cost7=0, bigt=r["bigt"], smartt=r["smartt"],
+                                      window=r["window"], model=r['model']))
     s_["cost"] += r["cost"]; s_["n"] += 1; s_["cr"] += r["cr"]; s_["tot"] += r["inp"] + r["cr"] + r["cc"]
     s_["first"] = min(s_["first"], r["t"]); s_["cold"] += r["cold"]
     if r["t"] >= tz_now - timedelta(days=7):
@@ -272,19 +292,21 @@ for r in R:  # every loaded request, so sessions that started before the 7-day w
     if r["t"] >= s_["last"]:
         s_["last"] = r["t"]
         if not r["sub"]:
-            s_["curctx"] = r["ctx"]; s_["bigt"] = r["bigt"]; s_["model"] = r["model"]
+            s_["curctx"] = r["ctx"]; s_["bigt"] = r["bigt"]; s_["smartt"] = r["smartt"]
+            s_["window"] = r["window"]; s_["model"] = r["model"]
     if not r["sub"]:
         s_["maxctx"] = max(s_["maxctx"], r["ctx"])
 
 def session_rows(sid, s, head):
+    tag = " · 1M" if s["window"] >= 1_000_000 else ""
     name = titles.get(sid) or f"Untitled · {s['first'].strftime('%b %d %H:%M')}"
     name = name if len(name) <= 44 else name[:43] + "…"
-    print(f"{head}{name} | {M} ansi=true {OK}")
+    print(f"{head}{name}{tag} | {M} ansi=true {OK}")
     print(f"--Project: {s['proj']} | size=12 {OK}")
     print(f"--{s['first'].strftime('%b %d %H:%M')} → {s['last'].strftime('%b %d %H:%M')} · {s['n']} requests · total {usd(s['cost'])} | size=12 {OK}")
     print(f"--Cache hit {pct(s['cr']/s['tot'] if s['tot'] else None)} · context now {tok(s['curctx'])} · peak {tok(s['maxctx'])} · {s['cold']} cache misses | size=12 {OK}")
     if s["curctx"] > s["bigt"]:
-        print(f"--Context is {tok(s['curctx'])} (cost threshold {tok(s['bigt'])}): run /compact (or /clear) in that session | sfimage=exclamationmark.triangle.fill sfcolor=#ffb800 size=12 color=#b45309,#fbbf24 {OK}")
+        print(f"--Context is {tok(s['curctx'])}{tag} (cost threshold {tok(s['bigt'])}): run /compact (or /clear) in that session | sfimage=exclamationmark.triangle.fill sfcolor=#ffb800 size=12 color=#b45309,#fbbf24 {OK}")
     print("-----")
     tr = glob.glob(os.path.expanduser(f"~/.claude/projects/*/{sid}.jsonl"))
     cwd_ = ""
@@ -301,8 +323,8 @@ def session_rows(sid, s, head):
     if tr:
         print(f"--Reveal transcript in Finder | size=12 bash=/usr/bin/open param1=-R param2={q(tr[0])} terminal=false")
 
-EMOJI = {"ok": "🟢", "warn": "🟡", "bad": "🔴"}
-ctx_state = lambda c, b: "bad" if c > 2 * b else "warn" if c > b else "ok"
+EMOJI = {"ok": "🟢", "warn": "🟡", "bad": "🔴", "info": "🔵"}
+ctx_state = lambda c, s, b: "bad" if c > 2 * b else "warn" if c > b else "info" if c > s else "ok"
 active = sorted(((sid, s_) for sid, s_ in ss.items()
                  if (tz_now - s_["last"]).total_seconds() <= C["active_window_minutes"] * 60),
                 key=lambda x: -x[1]["last"].timestamp())
@@ -312,7 +334,7 @@ if not active:
     print(f"No active sessions | {H}")
 for sid, s_ in active[:6]:
     ago = int((tz_now - s_["last"]).total_seconds() // 60)
-    st = ctx_state(s_["curctx"], s_["bigt"])
+    st = ctx_state(s_["curctx"], s_["smartt"], s_["bigt"])
     session_rows(sid, s_, f"{EMOJI[st]} {usd(s_['cost']):>7} {tok(s_['curctx']):>5} {('now' if ago < 1 else str(ago) + 'm'):>4}  ")
 
 # ---- summaries ----
