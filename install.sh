@@ -14,7 +14,7 @@ if [ ! -f "$SRC/claude-usage.2m.py" ]; then
   command -v git >/dev/null || { echo "git is required: run 'xcode-select --install' and retry"; exit 1; }
   DEST="${INSTALL_DIR:-$HOME/.claude-telemetry-widget}"
   if [ -d "$DEST/.git" ]; then
-    git -C "$DEST" pull -q --ff-only || { echo "could not update $DEST (local changes or no network): fix it or remove the folder, then retry"; exit 1; }
+    git -C "$DEST" pull -q --ff-only || { echo "could not update $DEST (no network, or you edited config.json / prices.json). To keep your edits: git -C $DEST stash && retry && git -C $DEST stash pop. To drop them: git -C $DEST checkout -- ."; exit 1; }
   else
     git clone -q "https://github.com/$REPO.git" "$DEST"
   fi
@@ -75,7 +75,7 @@ with open(sys.argv[1], "wb") as fh:
     plistlib.dump(plist, fh)
 PYE
 launchctl bootout "gui/$(id -u)/local.claude-cache-watch" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
+launchctl bootstrap "gui/$(id -u)" "$PLIST" || { sleep 2; launchctl bootstrap "gui/$(id -u)" "$PLIST"; }  # bootstrap right after bootout can race
 
 # merge into Claude Code settings; an existing, different statusLine is left alone
 mkdir -p "$(dirname "$SETTINGS")"
@@ -101,4 +101,4 @@ osascript -e 'tell application "System Events" to if not (exists login item "Swi
 pkill -x SwiftBar 2>/dev/null || true
 open -a SwiftBar
 echo "Installed. The Claude usage item is in the menu bar; plan limits appear after the next Claude Code status update."
-[ -e "$SETTINGS.bak" ] && echo "Original settings backup: $SETTINGS.bak"
+if [ -e "$SETTINGS.bak" ]; then echo "Original settings backup: $SETTINGS.bak"; fi

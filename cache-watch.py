@@ -7,6 +7,7 @@ would cost at least MIN_USD. Sound: Tink (light, short).
 """
 import glob, json, os, subprocess, sys, time
 from datetime import datetime, timezone
+from urllib.request import pathname2url
 
 D = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, D)
@@ -57,7 +58,7 @@ def last_request(path, now):
 def session_title(sid):
     """Title from usage.db, or None while the plugin has not created the database yet."""
     try:
-        db = sqlite3.connect("file:" + os.path.join(D, "usage.db") + "?mode=ro", uri=True)
+        db = sqlite3.connect("file:" + pathname2url(os.path.join(D, "usage.db")) + "?mode=ro", uri=True)
         try:
             row = db.execute("SELECT title FROM sessions WHERE session=?", (sid,)).fetchone()
         finally:

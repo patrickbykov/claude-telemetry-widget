@@ -1,5 +1,5 @@
 """Shared price table and cost helpers (prices.json = USD per million tokens)."""
-import json, os
+import json, os, re
 
 _D = os.path.dirname(os.path.realpath(__file__))
 with open(os.path.join(_D, "prices.json")) as fh:
@@ -12,10 +12,8 @@ def family(model):
     return "other"
 
 def price(model):
-    for key, p in P["models"].items():
-        if key in model:
-            return p
-    return P["default"]
+    hits = [k for k in P["models"] if re.search(r"(^|-)" + re.escape(k) + r"(-|$)", model)]
+    return P["models"][max(hits, key=len)] if hits else P["default"]  # longest key wins: opus-5-5 beats opus-5
 
 def parts(model, inp, out, cr, c5, c1):
     p = price(model)

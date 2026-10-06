@@ -1,5 +1,5 @@
 {
-  "_note": "USD per million tokens, from platform.claude.com/docs/en/about-claude/pricing (checked 2026-10-06). First key contained in the model id wins, so list specific ids before general ones. 'read' = cache hit price; 5m write = 1.25x in, 1h write = 2x in.",
+  "_note": "USD per million tokens, from platform.claude.com/docs/en/about-claude/pricing (checked 2026-10-06). The longest key found in the model id (on '-' boundaries) wins. 'read' = cache hit price; 5m write = 1.25x in, 1h write = 2x in.",
   "models": {
     "fable-5-1":  {"in": 10.0, "out": 50.0, "read": 0.25},
     "mythos-5-1": {"in": 10.0, "out": 50.0, "read": 0.25},
