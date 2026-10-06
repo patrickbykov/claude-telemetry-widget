@@ -25,9 +25,8 @@ PY="$D/.venv/bin/python3"
 # ---- prerequisites: report everything first, then offer to install what is missing ----
 MISSING=""
 [ -d /Applications/SwiftBar.app ] || MISSING="$MISSING swiftbar"
-command -v npx >/dev/null || MISSING="$MISSING node"
 python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null || command -v python3.12 >/dev/null || MISSING="$MISSING python@3.12"
-for p in swiftbar node python@3.12; do
+for p in swiftbar python@3.12; do
   case "$MISSING" in *"$p"*) echo "missing: $p" ;; *) echo "ok:      $p" ;; esac
 done
 command -v claude >/dev/null || [ -x "$HOME/.local/bin/claude" ] || echo "warning: Claude Code CLI not found (https://claude.com/claude-code); the plugin needs it to have data"
@@ -54,30 +53,21 @@ PYBIN="$(command -v python3.12 || command -v python3)"
 "$PYBIN" -m venv "$D/.venv"
 "$D/.venv/bin/pip" install -q pillow
 
-# the repo ships a portable shebang; the local copy points at the venv (hidden from git status)
-for f in claude-usage.2m.py cache-watch.py compact-to-file.py session-report.py; do
-  sed -i '' "1s|.*|#!$PY|" "$D/$f"
-  chmod +x "$D/$f"
-  git -C "$D" update-index --assume-unchanged "$f" 2>/dev/null || true
-done
+chmod +x "$D"/claude-usage.2m.py "$D"/cache-watch.py "$D"/compact-to-file.py "$D"/session-report.py "$D"/statusline-wrap.sh
 
 mkdir -p "$PLUGINS"
 ln -sf "$D/claude-usage.2m.py" "$PLUGINS/claude-usage.2m.py"
 defaults write com.ameba.SwiftBar PluginDirectory "$PLUGINS"
 
 PLIST="$HOME/Library/LaunchAgents/local.claude-cache-watch.plist"
-cat > "$PLIST" <<P
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>local.claude-cache-watch</string>
-<key>ProgramArguments</key><array><string>$D/cache-watch.py</string></array>
-<key>StartInterval</key><integer>30</integer>
-<key>RunAtLoad</key><true/>
-<key>ProcessType</key><string>Background</string>
-<key>LowPriorityIO</key><true/>
-</dict></plist>
-P
+mkdir -p "$(dirname "$PLIST")"
+"$PY" - "$PLIST" "$D/cache-watch.py" <<'PYE'
+import plistlib, sys
+plist = {"Label": "local.claude-cache-watch", "ProgramArguments": [sys.argv[2]], "StartInterval": 30,
+         "RunAtLoad": True, "ProcessType": "Background", "LowPriorityIO": True}
+with open(sys.argv[1], "wb") as fh:
+    plistlib.dump(plist, fh)
+PYE
 launchctl bootout "gui/$(id -u)/local.claude-cache-watch" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
@@ -85,10 +75,10 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST"
 mkdir -p "$(dirname "$SETTINGS")"
 [ -f "$SETTINGS" ] && cp "$SETTINGS" "$SETTINGS.bak"
 "$PY" - "$SETTINGS" "$D" <<'PYE'
-import json, os, sys
+import json, os, shlex, sys
 path, d = sys.argv[1:3]
 s = json.load(open(path)) if os.path.exists(path) else {}
-wrap, hook = f"{d}/statusline-wrap.sh", f"{d}/compact-to-file.py"
+wrap, hook = shlex.quote(f"{d}/statusline-wrap.sh"), shlex.quote(f"{d}/compact-to-file.py")
 cur = s.get("statusLine", {}).get("command")
 if cur in (None, wrap):
     s["statusLine"] = {"type": "command", "command": wrap, "padding": 0}

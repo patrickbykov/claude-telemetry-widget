@@ -13,16 +13,14 @@ sys.path.insert(0, D)
 from pricing import parts, family
 import sqlite3
 
-CFG = json.load(open(os.path.join(D, "config.json")))
+with open(os.path.join(D, "config.json")) as fh:
+    CFG = json.load(fh)
 WARN_S = CFG.get("cache_notify_before_s", 60)
 MIN_USD = CFG.get("cache_notify_min_usd", 0.5)
 STATE = os.path.join(D, "cache-watch.state.json")
+os.umask(0o077)
 
-def last_request(path, now):
-    """Newest assistant request, plus whether any request in the last hour wrote a 1 h cache entry (reads refresh it)."""
-    with open(path, "rb") as fh:
-        fh.seek(0, 2); size = fh.tell(); fh.seek(max(0, size - 200_000))
-        lines = fh.read().splitlines()
+def scan_tail(lines, now):
     newest, one_h = None, False
     for line in reversed(lines):
         if b'"usage"' in line and b'"assistant"' in line:
@@ -35,6 +33,8 @@ def last_request(path, now):
                 continue
             if newest is None:
                 newest = d
+            elif m.get("model") != newest["message"].get("model"):
+                break  # a model switch starts a new cache: older 1 h writes no longer keep it alive
             if datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00")).timestamp() < now - 3600:
                 break
             if (m["usage"].get("cache_creation") or {}).get("ephemeral_1h_input_tokens", 0) > 0:
@@ -42,10 +42,23 @@ def last_request(path, now):
                 break
     return newest, one_h
 
+def last_request(path, now):
+    """Newest assistant request, plus whether a same-model request in the last hour wrote a 1 h cache entry (reads refresh it)."""
+    n = 200_000
+    while True:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2); size = fh.tell(); fh.seek(max(0, size - n))
+            lines = fh.read().splitlines()
+        newest, one_h = scan_tail(lines, now)
+        if newest or n >= size or n >= 16_000_000:  # a huge record can push the newest request out of the tail: read more
+            return newest, one_h
+        n *= 4
+
 def main():
     now = time.time()
     try:
-        state = json.load(open(STATE))
+        with open(STATE) as fh:
+            state = json.load(fh)
     except Exception:
         state = {}
     db = None
@@ -75,7 +88,9 @@ def main():
         row = db.execute("SELECT title FROM sessions WHERE session=?", (sid,)).fetchone()
         title = (row[0] if row and row[0] else os.path.basename(os.path.dirname(path)).split("-")[-1])[:60]
         notify(title, int(left), ctx, cold, ttl, model)
-    json.dump(state, open(STATE + ".tmp", "w")); os.replace(STATE + ".tmp", STATE)
+    with open(STATE + ".tmp", "w") as fh:
+        json.dump(state, fh)
+    os.replace(STATE + ".tmp", STATE)
 
 def notify(title, left, ctx, cold, ttl, model):
     kind = "1 h" if ttl == 3600 else "5 min"
@@ -90,4 +105,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        open(os.path.join(D, "cache-watch.log"), "a").write(f"{datetime.now().isoformat(timespec='seconds')} {e!r}\n")
+        with open(os.path.join(D, "cache-watch.log"), "a") as fh:
+            fh.write(f"{datetime.now().isoformat(timespec='seconds')} {e!r}\n")

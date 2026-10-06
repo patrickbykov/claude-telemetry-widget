@@ -15,6 +15,7 @@ from pricing import family, price, parts, big
 C = json.load(open(os.path.join(D, "config.json")))
 BIG = C["ctx_big_tokens"]
 OUT_DIR = os.path.join(D, "reports")
+os.umask(0o077)  # reports quote prompts and tool inputs; keep them owner-only
 esc = html.escape
 
 
@@ -98,7 +99,8 @@ def load(sid):
                         if text and not text.startswith("<"):
                             prompts.append((parse_ts(d["timestamp"]), text))
                 elif t == "system" and d.get("subtype") == "compact_boundary":
-                    compactions.append(parse_ts(d["timestamp"]))
+                    if not is_sub:  # a subagent compacting its own context says nothing about the main one
+                        compactions.append(parse_ts(d["timestamp"]))
     rows = []
     for rid, r in reqs.items():
         if "ts" not in r:
@@ -382,8 +384,10 @@ Keep it short."""
     NUMCOLS = {'Cost','Req','Carry cost','Size','Stayed for','Idle gap','Context','Overspend','Reads'}
 
     def table(head, body):
-        return f'<table><thead><tr>{"".join(f"<th class=\"{'num' if h in NUMCOLS else ''}\">{h}</th>" for h in head)}</tr></thead><tbody>{body}</tbody></table>' if body else ""
+        ths = "".join('<th class="%s">%s</th>' % ("num" if h in NUMCOLS else "", h) for h in head)
+        return f'<table><thead><tr>{ths}</tr></thead><tbody>{body}</tbody></table>' if body else ""
 
+    prompt_html = '<textarea id="p" readonly rows="12" style="width:100%;font:12px/1.4 ui-monospace,Menlo,monospace;background:transparent;color:inherit;border:1px solid var(--line);border-radius:8px;padding:10px">'+esc(prompt)+'</textarea><p><button onclick="var t=document.getElementById(\'p\');t.select();document.execCommand(\'copy\');this.textContent=\'Copied ✓\'">Copy prompt</button></p>'
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Session review · {esc(title[:50])}</title>
 <style>
@@ -417,11 +421,14 @@ button{{font:inherit;padding:6px 14px;border-radius:8px;border:1px solid var(--l
 {section("What filled the context", svg_bars(tool_items, fmt=lambda v: tok(v) + " tok", label_w=120), "Estimated tokens returned by each tool (chars ÷ 4).")}
 {section("Biggest context passengers", table(["Carry cost","Size","Stayed for","Tool","Input"], res_rows), "Carry cost = size × later requests × cache-read price. Large results that linger are the real expense.")}
 {section("Cold-cache restarts", table(["When","Idle gap","Context","Overspend"], cold_rows))}
-{section("Prompt to optimize this workflow", '<textarea id="p" readonly rows="12" style="width:100%;font:12px/1.4 ui-monospace,Menlo,monospace;background:transparent;color:inherit;border:1px solid var(--line);border-radius:8px;padding:10px">'+esc(prompt)+'</textarea><p><button onclick="var t=document.getElementById(\'p\');t.select();document.execCommand(\'copy\');this.textContent=\'Copied ✓\'">Copy prompt</button></p>', "Paste into a fresh Claude Code session.")}
+{section("Prompt to optimize this workflow", prompt_html, "Paste into a fresh Claude Code session.")}
 {section("Repeated file reads", table(["Reads","File"], dup_rows))}
 <p class="foot">Generated {datetime.now().strftime('%b %d %H:%M')} from the local transcript. Costs are estimates from prices.json.</p>
 </main></body></html>"""
     os.makedirs(OUT_DIR, exist_ok=True)
+    os.chmod(OUT_DIR, 0o700)
+    for f in glob.glob(os.path.join(OUT_DIR, "*.html")):  # reports written before the umask was set
+        os.chmod(f, 0o600)
     out = os.path.join(OUT_DIR, f"{sid[:8]}.html")
     with open(out, "w") as fh:
         fh.write(page)

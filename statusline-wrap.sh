@@ -1,5 +1,5 @@
 #!/bin/sh
-# Saves the statusline JSON (contains rate_limits) for the menu bar plugin, then runs the real statusline.
+# Saves the statusline JSON (contains rate_limits) for the menu bar plugin.
 # Each invocation works on a private snapshot, so concurrent sessions never see each other's input.
 D="$(cd "$(dirname "$0")" && pwd)"
 T=$(mktemp "$D/statusline.XXXXXX") || exit 1

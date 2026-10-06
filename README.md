@@ -9,7 +9,7 @@ A macOS menu bar plugin ([SwiftBar](https://github.com/swiftbar/SwiftBar)) that 
 
 ## Requirements
 
-macOS, [SwiftBar](https://github.com/swiftbar/SwiftBar), Python 3.12+, Node (`npx`, for the statusline).
+macOS, [SwiftBar](https://github.com/swiftbar/SwiftBar), Python 3.12+.
 
 ## Install
 
@@ -27,9 +27,9 @@ cd claude-telemetry-widget
 ./install.sh
 ```
 
-The script is safe to re-run. It first checks the prerequisites (SwiftBar, Node, Python 3.12+; it only warns if the Claude Code CLI is missing) and lists what is absent. It then offers to install the missing ones with Homebrew, and to install Homebrew itself if needed. Pass `-y` to accept without prompts (`... | sh -s -- -y`). After that it:
+The script is safe to re-run. It first checks the prerequisites (SwiftBar, Python 3.12+; it only warns if the Claude Code CLI is missing) and lists what is absent. It then offers to install the missing ones with Homebrew, and to install Homebrew itself if needed. Pass `-y` to accept without prompts (`... | sh -s -- -y`). After that it:
 
-- creates a venv with Pillow;
+- creates a venv with Pillow (scripts re-exec under it via `use_venv.py`, so the system Python also works);
 - links the plugin into `~/swiftbar-plugins` (override with `SWIFTBAR_PLUGINS=<dir>`) and points SwiftBar at it;
 - starts the cache-watch launchd job;
 - adds the `statusLine` and `PostCompact` entries to `~/.claude/settings.json` (backup in `settings.json.bak`; an existing, different `statusLine` is left alone);

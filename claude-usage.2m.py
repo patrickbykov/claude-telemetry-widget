@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 D = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, D)
+import use_venv  # noqa: F401  re-runs under the venv (Pillow)
 import ingest, charts
 
 ingest.run()
@@ -31,7 +32,8 @@ tz_now = datetime.now().astimezone()
 midnight = tz_now.replace(hour=0, minute=0, second=0, microsecond=0)
 cut30 = (now - timedelta(days=35)).strftime("%Y-%m-%dT%H:%M:%S")
 raw = db.execute("SELECT ts, session, project, model, inp, out, cache_read, cc_5m, cc_1h, subagent "
-                 "FROM requests WHERE ts >= ? ORDER BY session, ts", (cut30,)).fetchall()
+                 "FROM requests WHERE ts >= ? OR session IN (SELECT session FROM requests WHERE ts >= ?) "
+                 "ORDER BY session, ts", (cut30, cut30)).fetchall()  # whole history of recent sessions, so their totals are complete
 R, prev = [], (None, None)
 BIG = C["ctx_big_tokens"]
 for ts, ses, proj, model, inp, out, cr, c5, c1, sub in raw:
@@ -73,7 +75,7 @@ def problems(s, label, judge=True):
     if s["cold"] >= C["warn_cold_restarts_at_least"]:
         out.append(f"{label}: {s['cold']} cold-cache restarts, ~${s['over']:.2f} overspend")
     if s["bigshare"] > C["warn_big_ctx_share_above"]:
-        out.append(f"{label}: {s['bigshare']*100:.0f}% of spend at >{BIG//1000}k context (${s['big']:.2f})")
+        out.append(f"{label}: {s['bigshare']*100:.0f}% of spend above the compaction threshold (${s['big']:.2f})")
     return out
 
 # ---- plan limits (statusline snapshot) ----
@@ -110,8 +112,9 @@ judge_today = S["today"]["n"] >= C["min_today_requests_to_judge"]
 pt_today = problems(S["today"], "Today", judge_today)
 lim_hot = [r for r in lim_rows if r[1] >= C["warn_limit_pct_at_least"]]
 pt_7d = problems(S["7d"], "7 days")
-last_main = {}
-for r in R:  # last non-subagent request per session
+last_main, last_any = {}, {}
+for r in R:  # last non-subagent request per session, and last activity of any kind
+    last_any[r["ses"]] = max(last_any.get(r["ses"], r["t"]), r["t"])
     if not r["sub"] and (r["ses"] not in last_main or r["t"] >= last_main[r["ses"]]["t"]):
         last_main[r["ses"]] = r
 HANDOFF = "handoff"
@@ -119,16 +122,16 @@ att = []  # (severity, title, fix, text to copy)
 n_active = 0
 dots = []
 for sid_, r in sorted(last_main.items(), key=lambda x: -x[1]["t"].timestamp()):
-    if (tz_now - r["t"]).total_seconds() > C["active_window_minutes"] * 60:
+    if (tz_now - last_any[sid_]).total_seconds() > C["active_window_minutes"] * 60:  # same activity rule as the dropdown: subagents count
         continue
     n_active += 1
     nm = (titles.get(sid_) or r["proj"])[:26]
     dots.append("bad" if r["ctx"] > 2 * r["bigt"] else "warn" if r["ctx"] > r["bigt"] or r["cold"] else "ok")
     fam_, lim_ = family(r["model"]), r["bigt"] // 1000
     if r["ctx"] > 2 * r["bigt"]:
-        att.append(("bad", f"“{nm}” · {r['ctx']//1000}k context", f"Over twice the {fam_} limit of {lim_}k. Write a handoff note, then /clear: summarising this much costs more than restarting.", HANDOFF))
+        att.append(("bad", f"“{nm}” · {r['ctx']//1000}k context", f"Over twice the {fam_} compaction threshold of {lim_}k. Write a handoff note, then /clear: summarising this much costs more than restarting.", HANDOFF))
     elif r["ctx"] > r["bigt"]:
-        att.append(("warn", f"“{nm}” · {r['ctx']//1000}k context", f"Over the {fam_} limit of {lim_}k. Run /compact at the next task boundary.", "compact"))
+        att.append(("warn", f"“{nm}” · {r['ctx']//1000}k context", f"Over the {fam_} compaction threshold of {lim_}k. Run /compact at the next task boundary.", "compact"))
     elif r["cold"]:
         att.append(("warn", f"“{nm}” · cold cache (+${r['over']:.2f})", "The cache expired before the last message. Reply within 5 min, or /compact before stepping away.", "compact"))
 for r_ in lim_hot:
@@ -255,9 +258,9 @@ def session_rows(sid, s, head):
     print(f"{head}{name} | {M} ansi=true {OK}")
     print(f"--Project: {s['proj']} | size=12 {OK}")
     print(f"--{s['first'].strftime('%b %d %H:%M')} → {s['last'].strftime('%b %d %H:%M')} · {s['n']} requests · total {usd(s['cost'])} | size=12 {OK}")
-    print(f"--Cache hit {pct(s['cr']/s['tot'] if s['tot'] else None)} · context now {tok(s['curctx'])} · peak {tok(s['maxctx'])} · {s['cold']} cold restarts | size=12 {OK}")
+    print(f"--Cache hit {pct(s['cr']/s['tot'] if s['tot'] else None)} · context now {tok(s['curctx'])} · peak {tok(s['maxctx'])} · {s['cold']} cache misses | size=12 {OK}")
     if s["curctx"] > s["bigt"]:
-        print(f"--Context is {tok(s['curctx'])} on {family(s['model'])} (limit {tok(s['bigt'])}): run /compact (or /clear) in that session | sfimage=exclamationmark.triangle.fill sfcolor=#ffb800 size=12 color=#b45309,#fbbf24 {OK}")
+        print(f"--Context is {tok(s['curctx'])} on {family(s['model'])} (threshold {tok(s['bigt'])}): run /compact (or /clear) in that session | sfimage=exclamationmark.triangle.fill sfcolor=#ffb800 size=12 color=#b45309,#fbbf24 {OK}")
     print("-----")
     tr = glob.glob(os.path.expanduser(f"~/.claude/projects/*/{sid}.jsonl"))
     cwd_ = ""
