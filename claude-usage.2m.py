@@ -54,10 +54,6 @@ for ts, ses, proj, model, inp, out, cr, c5, c1, sub in raw:
     if not sub:
         prev = (ses, t, ctx, model)
 
-SESS_1H = {r["ses"] for r in R if r["c1"]}  # cc_1h seen this session: subscription-plan cache (1h TTL), else API-key/credit billing (5m)
-def ttl_label(ses):
-    return "1 hour" if ses in SESS_1H else "5 min"
-
 def scope(since):
     return [r for r in R if r["t"] >= since]
 
@@ -136,17 +132,20 @@ for sid_, r in sorted(last_main.items(), key=lambda x: -x[1]["t"].timestamp()):
         continue
     n_active += 1
     nm = (titles.get(sid_) or r["proj"])[:26]
-    dots.append("bad" if r["ctx"] > 2 * r["bigt"] else "warn" if r["ctx"] > r["bigt"] or r["cold"] else "ok")
+    idle_min = (tz_now - r["t"]).total_seconds() / 60
+    ttl_ = "1 hour" if r["c1"] else "5 min"
+    ttl_min = 60 if r["c1"] else 5
+    cold_now = idle_min > ttl_min  # cache warmth right now (idle vs TTL), not r["cold"] which only flags a past cache-miss rewrite
+    dots.append("bad" if r["ctx"] > 2 * r["bigt"] else "warn" if r["ctx"] > r["bigt"] or cold_now else "ok")
     lim_ = r["bigt"] // 1000
-    ttl_ = ttl_label(sid_)
-    if r["ctx"] > 2 * r["bigt"] and r["cold"]:
+    if r["ctx"] > 2 * r["bigt"] and cold_now:
         att.append(("bad", f"“{nm}” · {r['ctx']//1000}k context, cold cache", f"Over twice the {lim_}k cost threshold and the cache has expired: summarising this much costs more than restarting. Write a handoff note, then /clear.", HANDOFF))
     elif r["ctx"] > 2 * r["bigt"]:
         att.append(("bad", f"“{nm}” · {r['ctx']//1000}k context", f"Over twice the {lim_}k cost threshold, cache still warm. Run /compact with a focus note rather than restarting cold.", "compact"))
     elif r["ctx"] > r["bigt"]:
         att.append(("warn", f"“{nm}” · {r['ctx']//1000}k context", f"Over the {lim_}k cost threshold. Run /compact at the next task boundary while the cache is warm.", "compact"))
-    elif r["cold"]:
-        att.append(("warn", f"“{nm}” · cold cache (+${r['over']:.2f})", f"The cache expired before the last message (TTL {ttl_} for this session). Reply sooner next time, or /compact before stepping away.", "compact"))
+    elif cold_now:
+        att.append(("warn", f"“{nm}” · cache cold ({idle_min:.0f}m idle)", f"Idle past the {ttl_} cache window: resuming now reprocesses the whole context. Reply sooner next time, or /compact before stepping away.", "compact"))
 for r_ in lim_hot:
     att.append(("bad" if r_[1] >= 90 else "warn", f"{r_[0]} at {r_[1]:.0f}%", "Move routine work to sonnet or haiku, and delegate noisy commands to subagents.", ""))
 TODAY_FIX = (("cache hit", "Avoid editing CLAUDE.md or switching models mid-session: both invalidate the cache."),
